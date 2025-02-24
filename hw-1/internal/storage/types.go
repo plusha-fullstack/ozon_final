@@ -1,4 +1,4 @@
-package types
+package storage
 
 import "time"
 
@@ -9,6 +9,12 @@ type Order struct {
 	Status       string    `json:"status"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+type StorageData struct {
+	Orders  []Order        `json:"orders"`
+	Returns []Return       `json:"returns"`
+	History []HistoryEntry `json:"history"`
 }
 
 type Return struct {
