@@ -7,6 +7,9 @@ type Order struct {
 	RecipientID  string    `json:"recipient_id"`
 	StorageUntil time.Time `json:"storage_until"`
 	Status       string    `json:"status"`
+	Price        int       `json:"price"`
+	Weight       float32   `json:"weight"`
+	Wrapper      Container `json:"wrapper"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -28,3 +31,11 @@ type HistoryEntry struct {
 	Status    string    `json:"status"`
 	ChangedAt time.Time `json:"changed_at"`
 }
+
+type Container string
+
+const (
+	Bag      Container = "Bag"
+	Box      Container = "Box"
+	Membrane Container = "Membrane"
+)

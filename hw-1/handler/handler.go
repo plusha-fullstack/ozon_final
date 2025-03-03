@@ -29,7 +29,7 @@ func New(storage Storage) *Handler {
 
 func (h *Handler) HandleHelp() {
 	fmt.Println(`Available commands:
-	accept <orderID> <recipientID> <YYYY-MM-DD> - Accept order
+	accept <orderID> <recipientID> <wrapper-type> <price> <weight> <YYYY-MM-DD> <withAdditionalMembrane(true/false)> - Accept order
 	return <orderID> - Return order to courier
 	process <userID> <issue|return> <orderID...> - Process client order
 	list-orders <userID> [--last N] [--active] - List orders
@@ -39,26 +39,60 @@ func (h *Handler) HandleHelp() {
 }
 
 func (h *Handler) HandleAccept(args []string) {
-	if len(args) != 3 {
-		fmt.Println("Usage: accept <orderID> <recipientID> <YYYY-MM-DD>")
+	if len(args) != 7 {
+		fmt.Println("Usage: accept <orderID> <recipientID> <wrapper-type> <price> <weight> <YYYY-MM-DD> <withAdditionalMembrane(true/false)>")
 		return
 	}
 
-	date, err := time.Parse("2006-01-02", args[2])
+	date, err := time.Parse("2006-01-02", args[5])
 	if err != nil {
 		fmt.Println("Invalid date format. Use YYYY-MM-DD")
 		return
 	}
+
 	if date.Before(time.Now()) {
 		fmt.Println("Error: storage period is in the past")
 		return
 	}
+
+	price, err := strconv.Atoi(args[3])
+	if err != nil {
+		fmt.Println("Error converting String to INT", args[3])
+		return
+	}
+
+	weight, err := strconv.ParseFloat(args[4], 32)
+	if err != nil {
+		fmt.Println("Error converting String to Float", args[4])
+		return
+	}
+
+	withMembrane := false
+	if args[6] == "true" {
+		withMembrane = true
+	}
+
+	packager, err := storage.GetPackager(args[2], withMembrane)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	if err := packager.ValidateWeight(float32(weight)); err != nil {
+		fmt.Println("Validation Failed:", err)
+		return
+	}
+
+	adjustedPrice := packager.AdjustPrice(price)
 
 	order := storage.Order{
 		ID:           args[0],
 		RecipientID:  args[1],
 		StorageUntil: date.UTC(),
 		Status:       "received",
+		Price:        adjustedPrice,
+		Weight:       float32(weight),
+		Wrapper:      storage.Container(packager.GetType()),
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
 	}
