@@ -1,57 +1,55 @@
 package main
 
 import (
-	"bufio"
+	"context"
 	"fmt"
-	"os"
-	"strings"
+	"log"
+	"os/signal"
+	"syscall"
+	"time"
 
-	"gitlab.ozon.dev/pupkingeorgij/homework/handler"
+	"gitlab.ozon.dev/pupkingeorgij/homework/internal/pkg/db"
+	"gitlab.ozon.dev/pupkingeorgij/homework/internal/pkg/repository/postgresql"
 	"gitlab.ozon.dev/pupkingeorgij/homework/internal/storage"
+	"gitlab.ozon.dev/pupkingeorgij/homework/server"
 )
 
 func main() {
-	stg, err := storage.New("storage.json")
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	dbPool, err := db.NewDb(ctx)
 	if err != nil {
-		fmt.Println("Storage init error:", err)
+		fmt.Println("Database init error:", err)
 		return
 	}
 
-	h := handler.New(stg)
+	orderRepo := postgresql.NewOrderRepo(dbPool)
+	returnRepo := postgresql.NewReturnRepo(dbPool)
+	historyRepo := postgresql.NewHistoryRepo(dbPool)
+	userRepo := postgresql.NewUserRepo(dbPool)
 
-	scanner := bufio.NewScanner(os.Stdin)
-	for {
-		fmt.Print("> ")
-		if !scanner.Scan() {
-			break
-		}
+	stg := storage.NewPostgresStorage(ctx, orderRepo, returnRepo, historyRepo)
 
-		input := strings.TrimSpace(scanner.Text())
-		args := strings.Fields(input)
-		if len(args) == 0 {
-			continue
-		}
+	srv := server.New(stg, userRepo)
 
-		switch args[0] {
-		case "exit":
-			fmt.Println("Exiting...")
-			return
-		case "accept":
-			h.HandleAccept(args[1:])
-		case "return":
-			h.HandleReturn(args[1:])
-		case "list-orders":
-			h.HandleListOrders(args[1:])
-		case "help":
-			h.HandleHelp()
-		case "process":
-			h.HandleProcess(args[1:])
-		case "list-returns":
-			h.HandleListReturns(args[1:])
-		case "history":
-			h.HandleHistory(args[1:])
-		default:
-			fmt.Println("Unknown command. Type 'help'")
+	go func() {
+		if err := srv.Run("9000"); err != nil {
+			log.Fatalf("Failed to start server: %v", err)
 		}
+	}()
+
+	log.Println("Server started on port 9000")
+
+	<-ctx.Done()
+	log.Println("Shutting down server...")
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Fatalf("Server shutdown failed: %v", err)
 	}
+
+	log.Println("Server gracefully stopped")
 }

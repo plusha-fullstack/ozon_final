@@ -1,155 +1,212 @@
 package storage
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
-	"os"
-	"sort"
+	"fmt"
 	"time"
+
+	"gitlab.ozon.dev/pupkingeorgij/homework/internal/pkg/repository"
 )
 
-var (
-	ErrOrderExists   = errors.New("order already exists")
-	ErrOrderNotFound = errors.New("order not found")
-)
-
-type FileStorage struct {
-	filePath string
-	data     *StorageData
+type PostgresStorage struct {
+	orderRepo   OrderRepository
+	returnRepo  ReturnRepository
+	historyRepo HistoryRepository
+	ctx         context.Context
 }
 
-func New(filePath string) (*FileStorage, error) {
-	fs := &FileStorage{
-		filePath: filePath,
-		data: &StorageData{
-			Orders:  make([]Order, 0),
-			Returns: make([]Return, 0),
-			History: make([]HistoryEntry, 0),
-		},
+type OrderRepository interface {
+	Create(ctx context.Context, order *repository.Order) error
+	GetByID(ctx context.Context, id string) (*repository.Order, error)
+	Update(ctx context.Context, order *repository.Order) error
+	Delete(ctx context.Context, id string) error
+	GetByUserID(ctx context.Context, userID string, limit int, activeOnly bool) ([]*repository.Order, error)
+}
+
+type ReturnRepository interface {
+	Create(ctx context.Context, ret *repository.ReturnEntry) error
+	GetPaginated(ctx context.Context, page, limit int) ([]*repository.ReturnEntry, error)
+}
+
+type HistoryRepository interface {
+	Create(ctx context.Context, entry *repository.HistoryEntry) error
+	GetByOrderID(ctx context.Context, orderID string) ([]*repository.HistoryEntry, error)
+}
+
+func NewPostgresStorage(
+	ctx context.Context,
+	orderRepo OrderRepository,
+	returnRepo ReturnRepository,
+	historyRepo HistoryRepository,
+) *PostgresStorage {
+	return &PostgresStorage{
+		orderRepo:   orderRepo,
+		returnRepo:  returnRepo,
+		historyRepo: historyRepo,
+		ctx:         ctx,
 	}
-	return fs, fs.load()
 }
 
-func (fs *FileStorage) load() error {
-	file, err := os.Open(fs.filePath)
+func (s *PostgresStorage) AddOrder(order Order) error {
+	repoOrder := &repository.Order{
+		ID:           order.ID,
+		RecipientID:  order.RecipientID,
+		StorageUntil: order.StorageUntil,
+		Status:       order.Status,
+		Price:        order.Price,
+		Weight:       order.Weight,
+		Wrapper:      string(order.Wrapper),
+		CreatedAt:    order.CreatedAt,
+		UpdatedAt:    order.UpdatedAt,
+	}
+
+	err := s.orderRepo.Create(s.ctx, repoOrder)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
+		return fmt.Errorf("failed to add order: %w", err)
 	}
-	defer file.Close()
-	return json.NewDecoder(file).Decode(fs.data)
+
+	historyEntry := &repository.HistoryEntry{
+		OrderID:   order.ID,
+		Status:    order.Status,
+		ChangedAt: time.Now().UTC(),
+	}
+
+	if err := s.historyRepo.Create(s.ctx, historyEntry); err != nil {
+		return fmt.Errorf("failed to add order history entry: %w", err)
+	}
+
+	return nil
 }
 
-func (fs *FileStorage) save() error {
-	file, err := os.Create(fs.filePath)
+func (s *PostgresStorage) GetOrder(orderID string) (*Order, error) {
+	repoOrder, err := s.orderRepo.GetByID(s.ctx, orderID)
 	if err != nil {
-		return err
-	}
-	defer file.Close()
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(fs.data)
-}
-
-func (fs *FileStorage) AddOrder(order Order) error {
-	for _, o := range fs.data.Orders {
-		if o.ID == order.ID {
-			return ErrOrderExists
+		if errors.Is(err, repository.ErrObjectNotFound) {
+			return nil, fmt.Errorf("order not found")
 		}
+		return nil, fmt.Errorf("failed to get order: %w", err)
 	}
 
-	fs.data.Orders = append(fs.data.Orders, order)
-	fs.addHistory(order.ID, "received")
-	return fs.save()
+	order := &Order{
+		ID:           repoOrder.ID,
+		RecipientID:  repoOrder.RecipientID,
+		StorageUntil: repoOrder.StorageUntil,
+		Status:       repoOrder.Status,
+		Price:        repoOrder.Price,
+		Weight:       repoOrder.Weight,
+		Wrapper:      Container(repoOrder.Wrapper),
+		CreatedAt:    repoOrder.CreatedAt,
+		UpdatedAt:    repoOrder.UpdatedAt,
+	}
+
+	return order, nil
 }
 
-func (fs *FileStorage) GetOrder(orderID string) (*Order, error) {
-	for _, o := range fs.data.Orders {
-		if o.ID == orderID {
-			return &o, nil
+func (s *PostgresStorage) UpdateOrderStatus(orderID, status string) error {
+	repoOrder, err := s.orderRepo.GetByID(s.ctx, orderID)
+	if err != nil {
+		if errors.Is(err, repository.ErrObjectNotFound) {
+			return fmt.Errorf("order not found")
 		}
-	}
-	return nil, ErrOrderNotFound
-}
-
-func (fs *FileStorage) UpdateOrderStatus(orderID, status string) error {
-	for i := range fs.data.Orders {
-		if fs.data.Orders[i].ID == orderID {
-			fs.data.Orders[i].Status = status
-			fs.data.Orders[i].UpdatedAt = time.Now().UTC()
-			fs.addHistory(orderID, status)
-			return fs.save()
-		}
-	}
-	return ErrOrderNotFound
-}
-
-func (fs *FileStorage) DeleteOrder(orderID string) error {
-	for i, o := range fs.data.Orders {
-		if o.ID == orderID {
-			fs.data.Orders = append(fs.data.Orders[:i], fs.data.Orders[i+1:]...)
-			return fs.save()
-		}
-	}
-	return ErrOrderNotFound
-}
-
-func (fs *FileStorage) GetUserOrders(userID string, lastN int, activeOnly bool) ([]Order, error) {
-	var result []Order
-	for _, o := range fs.data.Orders {
-		if o.RecipientID == userID {
-			if !activeOnly || o.StorageUntil.After(time.Now().UTC()) {
-				result = append(result, o)
-			}
-		}
+		return fmt.Errorf("failed to get order: %w", err)
 	}
 
-	if lastN > 0 && len(result) > lastN {
-		result = result[len(result)-lastN:]
+	repoOrder.Status = status
+	repoOrder.UpdatedAt = time.Now().UTC()
+	if err := s.orderRepo.Update(s.ctx, repoOrder); err != nil {
+		return fmt.Errorf("failed to update order: %w", err)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].CreatedAt.After(result[j].CreatedAt)
-	})
-
-	return result, nil
-}
-
-func (fs *FileStorage) AddReturn(ret Return) error {
-	fs.data.Returns = append(fs.data.Returns, ret)
-	return fs.save()
-}
-
-func (fs *FileStorage) GetReturns(page, limit int) ([]Return, error) {
-	start := (page - 1) * limit
-	if start >= len(fs.data.Returns) {
-		return []Return{}, nil
-	}
-
-	end := start + limit
-	if end > len(fs.data.Returns) {
-		end = len(fs.data.Returns)
-	}
-
-	return fs.data.Returns[start:end], nil
-}
-
-func (fs *FileStorage) GetOrderHistory(orderID string) ([]HistoryEntry, error) {
-	var history []HistoryEntry
-	for _, h := range fs.data.History {
-		if h.OrderID == orderID {
-			history = append(history, h)
-		}
-	}
-	return history, nil
-}
-
-func (fs *FileStorage) addHistory(orderID, status string) {
-	fs.data.History = append(fs.data.History, HistoryEntry{
+	historyEntry := &repository.HistoryEntry{
 		OrderID:   orderID,
 		Status:    status,
 		ChangedAt: time.Now().UTC(),
-	})
+	}
+
+	if err := s.historyRepo.Create(s.ctx, historyEntry); err != nil {
+		return fmt.Errorf("failed to add order history entry: %w", err)
+	}
+
+	return nil
+}
+
+func (s *PostgresStorage) DeleteOrder(orderID string) error {
+	if err := s.orderRepo.Delete(s.ctx, orderID); err != nil {
+		return fmt.Errorf("failed to delete order: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresStorage) GetUserOrders(userID string, lastN int, activeOnly bool) ([]Order, error) {
+	repoOrders, err := s.orderRepo.GetByUserID(s.ctx, userID, lastN, activeOnly)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user orders: %w", err)
+	}
+
+	orders := make([]Order, len(repoOrders))
+	for i, repoOrder := range repoOrders {
+		orders[i] = Order{
+			ID:           repoOrder.ID,
+			RecipientID:  repoOrder.RecipientID,
+			StorageUntil: repoOrder.StorageUntil,
+			Status:       repoOrder.Status,
+			Price:        repoOrder.Price,
+			Weight:       repoOrder.Weight,
+			Wrapper:      Container(repoOrder.Wrapper),
+			CreatedAt:    repoOrder.CreatedAt,
+			UpdatedAt:    repoOrder.UpdatedAt,
+		}
+	}
+
+	return orders, nil
+}
+
+func (s *PostgresStorage) AddReturn(ret Return) error {
+	repoReturn := &repository.ReturnEntry{
+		OrderID:    ret.OrderID,
+		UserID:     ret.UserID,
+		ReturnedAt: ret.ReturnedAt,
+	}
+
+	if err := s.returnRepo.Create(s.ctx, repoReturn); err != nil {
+		return fmt.Errorf("failed to add return: %w", err)
+	}
+
+	return nil
+}
+
+func (s *PostgresStorage) GetReturns(page, limit int) ([]Return, error) {
+	repoReturns, err := s.returnRepo.GetPaginated(s.ctx, page, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get returns: %w", err)
+	}
+
+	returns := make([]Return, len(repoReturns))
+	for i, repoReturn := range repoReturns {
+		returns[i] = Return{
+			OrderID:    repoReturn.OrderID,
+			UserID:     repoReturn.UserID,
+			ReturnedAt: repoReturn.ReturnedAt,
+		}
+	}
+
+	return returns, nil
+}
+
+func (s *PostgresStorage) GetOrderHistory(orderID string) ([]HistoryEntry, error) {
+	repoEntries, err := s.historyRepo.GetByOrderID(s.ctx, orderID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get order history: %w", err)
+	}
+
+	entries := make([]HistoryEntry, len(repoEntries))
+	for i, repoEntry := range repoEntries {
+		entries[i] = HistoryEntry{
+			Status:    repoEntry.Status,
+			ChangedAt: repoEntry.ChangedAt,
+		}
+	}
+
+	return entries, nil
 }

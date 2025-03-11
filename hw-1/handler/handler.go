@@ -97,7 +97,7 @@ func (h *Handler) HandleAccept(args []string) {
 		UpdatedAt:    time.Now().UTC(),
 	}
 
-	if err := h.storage.AddOrder(order); err != nil {
+	if err := h.storage.AddOrder(order); err != nil { // orderRepo.add !
 		fmt.Println("Error:", err)
 	} else {
 		fmt.Println("Order accepted successfully")
@@ -126,7 +126,7 @@ func (h *Handler) HandleReturn(args []string) {
 		return
 	}
 
-	if err := h.storage.DeleteOrder(args[0]); err != nil {
+	if err := h.storage.DeleteOrder(args[0]); err != nil { // orderRepo.delete
 		fmt.Println("Error:", err)
 	} else {
 		fmt.Println("Order returned to courier")
@@ -155,7 +155,7 @@ func (h *Handler) HandleProcess(args []string) {
 
 func (h *Handler) handleIssueOrders(userID string, orderIDs []string) {
 	for _, orderID := range orderIDs {
-		order, err := h.storage.GetOrder(orderID)
+		order, err := h.storage.GetOrder(orderID) // ???
 		if err != nil {
 			fmt.Printf("Error: order %s not found\n", orderID)
 			continue
@@ -176,7 +176,7 @@ func (h *Handler) handleIssueOrders(userID string, orderIDs []string) {
 			continue
 		}
 
-		if err := h.storage.UpdateOrderStatus(orderID, "issued"); err != nil {
+		if err := h.storage.UpdateOrderStatus(orderID, "issued"); err != nil { //orderRepo.Update
 			fmt.Printf("Error: failed to issue order %s\n", orderID)
 		} else {
 			fmt.Printf("Order %s issued successfully\n", orderID)
@@ -207,7 +207,7 @@ func (h *Handler) handleAcceptReturns(userID string, orderIDs []string) {
 			continue
 		}
 
-		if err := h.storage.AddReturn(storage.Return{
+		if err := h.storage.AddReturn(storage.Return{ // returnRepo.add
 			OrderID:    orderID,
 			UserID:     userID,
 			ReturnedAt: time.Now().UTC(),
@@ -215,7 +215,7 @@ func (h *Handler) handleAcceptReturns(userID string, orderIDs []string) {
 			fmt.Printf("Error: failed to accept return for order %s\n", orderID)
 		} else {
 			fmt.Printf("Return accepted for order %s\n", orderID)
-			h.storage.UpdateOrderStatus(orderID, "returned")
+			h.storage.UpdateOrderStatus(orderID, "returned") //orderRepo.update
 		}
 	}
 }
