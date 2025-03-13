@@ -1,9 +1,7 @@
 services:
   postgres:
     image: postgres:13
-    environment:
-      POSTGRES_DB: test
-      POSTGRES_USER: test
-      POSTGRES_PASSWORD: test
+    env_file:
+      - .example.env
     ports:
       - "5432:5432"

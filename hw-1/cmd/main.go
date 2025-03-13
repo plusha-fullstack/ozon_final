@@ -8,10 +8,10 @@ import (
 	"syscall"
 	"time"
 
-	"gitlab.ozon.dev/pupkingeorgij/homework/internal/pkg/db"
-	"gitlab.ozon.dev/pupkingeorgij/homework/internal/pkg/repository/postgresql"
+	"gitlab.ozon.dev/pupkingeorgij/homework/internal/db"
+	"gitlab.ozon.dev/pupkingeorgij/homework/internal/repository/postgresql"
+	"gitlab.ozon.dev/pupkingeorgij/homework/internal/server"
 	"gitlab.ozon.dev/pupkingeorgij/homework/internal/storage"
-	"gitlab.ozon.dev/pupkingeorgij/homework/server"
 )
 
 func main() {
@@ -24,12 +24,14 @@ func main() {
 		return
 	}
 
-	orderRepo := postgresql.NewOrderRepo(dbPool)
-	returnRepo := postgresql.NewReturnRepo(dbPool)
-	historyRepo := postgresql.NewHistoryRepo(dbPool)
-	userRepo := postgresql.NewUserRepo(dbPool)
+	db.InitAdmin(dbPool)
 
-	stg := storage.NewPostgresStorage(ctx, orderRepo, returnRepo, historyRepo)
+	var orderRepo storage.OrderRepository = postgresql.NewOrderRepo(dbPool)
+	var returnRepo storage.ReturnRepository = postgresql.NewReturnRepo(dbPool)
+	var historyRepo storage.HistoryRepository = postgresql.NewHistoryRepo(dbPool)
+	var userRepo storage.UserRepository = postgresql.NewUserRepo(dbPool)
+
+	stg := storage.NewStorage(ctx, dbPool, orderRepo, returnRepo, historyRepo, userRepo)
 
 	srv := server.New(stg, userRepo)
 
