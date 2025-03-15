@@ -1,52 +1,62 @@
-# Система управления заказами — упрощенное описание архитектуры
+// принять заказ от курьера
+curl -X POST http://localhost:9000/orders \
+  -u admin:password \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "ORDER1",
+    "recipient_id": "USER1",
+    "wrapper_type": "Box",
+    "price": 1000,
+    "weight": 5.5,
+    "storage_until": "2025-12-31",
+    "with_additional_membrane": true
+  }'
 
-## 1. Стандарт архитектуры
+// вернуть заказ курьеру если срок истек
+curl -X DELETE http://localhost:9000/orders/ORDER1 \
+  -u admin:password
 
-Это описание архитектуры соответствует стандарту **Unified Modeling Language (UML)** 2.5 для диаграмм классов, поддерживаемому Object Management Group (OMG).
+  
 
-**Ссылка:** [Спецификация UML 2.5](https://www.omg.org/spec/UML/2.5/About-UML/)
+// выдать юзеру заказ
+curl -X POST http://localhost:9000/process/issue \
+  -u admin:password \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "USER1",
+    "order_ids": ["ORDER1", "ORDER2"]
+  }'
 
-## 2. Ключевые компоненты
+// принять возврат от юзера
+curl -X POST http://localhost:9000/process/return \
+  -u admin:password \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "USER1",
+    "order_ids": ["ORDER1", "ORDER2"]
+  }'
 
-### 2.1 Обработчик
-Командный процессор, который интерпретирует пользовательские команды и делегирует их слою хранения. Он отвечает за все взаимодействия пользователя и бизнес-логику.
+// получение списка заказов
+curl -X GET http://localhost:9000/users/USER1/orders \
+  -u admin:password
 
-### 2.2 Интерфейс хранения
-Определяет контракт для операций с данными. Эта абстракция допускает различные реализации хранения.
+curl -X GET "http://localhost:9000/users/USER1/orders?active=true" \
+  -u admin:password
 
-### 2.3 Хранилище файлов
-Конкретная реализация интерфейса хранения, которая сохраняет данные в файле JSON.
+curl -X GET "http://localhost:9000/users/USER1/orders?last=5" \
+  -u admin:password
 
-### 2.4 Сущности данных
-- **Order**: представляет заказ клиента с его свойствами
-- **Return**: отслеживает возвращенные заказы
-- **HistoryEntry**: регистрирует изменения статуса заказов
+curl -X GET "http://localhost:9000/users/USER1/orders?active=true&last=5" \
+  -u admin:password
 
-### 2.5 Система упаковки
-- **Packager Interface**: определяет операции для разных типов упаковки
-- **Concrete Packagers**: BagPackager, BoxPackager, MembranePackager
-- **MembraneDecorator**: добавляет дополнительную функциональность упаковки к любому упаковщику
 
-## 3. Ключевые шаблоны проектирования
+curl -X GET http://localhost:9000/returns \
+  -u admin:password
 
-### 3.1 Шаблон репозитория
-Интерфейс хранилища абстрагирует операции доступа к данным.
+curl -X GET "http://localhost:9000/returns?page=2&limit=20" \
+  -u admin:password
 
-### 3.2 Шаблон декоратора
-MembraneDecorator динамически добавляет функциональность к существующим упаковщикам.
 
-### 3.3 Шаблон команды
-Обработчик обрабатывает разные команды из пользовательского ввода.
-
-## 4. Основные отношения
-
-1. **Handler использует Storage**: Handler зависит от интерфейса Storage для операций с данными
-2. **FileStorage реализует Storage**: FileStorage предоставляет конкретную реализацию для интерфейса Storage
-3. **FileStorage управляет сущностями**: FileStorage создает и управляет объектами Order, Return и HistoryEntry
-4. **Orders используют Packagers**: Orders связаны с различными типами упаковки
-5. **MembraneDecorator декорирует Packagers**: MembraneDecorator может улучшить любой Packager с помощью дополнительных функций
-
-Эта архитектура способствует:
-- **Разделению задач**: логика пользовательского интерфейса (команды) отделена от бизнес-логики и хранилища данных
-- **Расширяемость**: новые реализации хранилища или типы упаковщиков могут быть добавлены без изменения существующего кода
-- **Поддерживаемость**: компоненты имеют четкие обязанности и интерфейсы
+история 
+curl -X GET http://localhost:9000/orders/ORDER1/history \
+  -u admin:password
