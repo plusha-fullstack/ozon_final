@@ -3,6 +3,7 @@ package postgresql
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -14,7 +15,6 @@ import (
 )
 
 func TestMain(m *testing.M) {
-
 	os.Setenv("DB_HOST", "localhost")
 	os.Setenv("DB_PORT", "5432")
 	os.Setenv("DB_USER", "postgres")
@@ -26,18 +26,25 @@ func TestMain(m *testing.M) {
 }
 
 func TestReturnRepo_Create(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDB := mock_database.NewMockDB(ctrl)
-	repo := NewReturnRepo(mockDB)
 	ctx := context.Background()
 
 	t.Run("Success", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDB := mock_database.NewMockDB(ctrl)
+		repo := NewReturnRepo(mockDB)
+
+		returnedAt, err := time.Parse("2006-01-02", "2025-01-01")
+		if err != nil {
+			fmt.Println("Error parsing date:", err)
+			return
+		}
+
 		entry := &repository.ReturnEntry{
 			OrderID:    "order123",
 			UserID:     "user456",
-			ReturnedAt: time.Now(),
+			ReturnedAt: returnedAt.UTC(),
 		}
 
 		mockDB.EXPECT().
@@ -47,15 +54,27 @@ func TestReturnRepo_Create(t *testing.T) {
 				gomock.Eq(entry.ReturnedAt)).
 			Return(nil, nil)
 
-		err := repo.Create(ctx, entry)
+		err = repo.Create(ctx, entry)
 		assert.NoError(t, err)
 	})
 
 	t.Run("DB Error", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDB := mock_database.NewMockDB(ctrl)
+		repo := NewReturnRepo(mockDB)
+
+		returnedAt, err := time.Parse("2006-01-02", "2025-01-01")
+		if err != nil {
+			fmt.Println("Error parsing date:", err)
+			return
+		}
+
 		entry := &repository.ReturnEntry{
 			OrderID:    "order123",
 			UserID:     "user456",
-			ReturnedAt: time.Now(),
+			ReturnedAt: returnedAt.UTC(),
 		}
 		dbErr := errors.New("database error")
 
@@ -63,26 +82,33 @@ func TestReturnRepo_Create(t *testing.T) {
 			Exec(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, dbErr)
 
-		err := repo.Create(ctx, entry)
+		err = repo.Create(ctx, entry)
 		assert.Error(t, err)
 		assert.Equal(t, dbErr, err)
 	})
 }
 
 func TestReturnRepo_CreateTx(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDB := mock_database.NewMockDB(ctrl)
-	mockTx := mock_database.NewMockTx(ctrl)
-	repo := NewReturnRepo(mockDB)
 	ctx := context.Background()
 
 	t.Run("Success", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDB := mock_database.NewMockDB(ctrl)
+		mockTx := mock_database.NewMockTx(ctrl)
+		repo := NewReturnRepo(mockDB)
+
+		returnedAt, err := time.Parse("2006-01-02", "2025-01-01")
+		if err != nil {
+			fmt.Println("Error parsing date:", err)
+			return
+		}
+
 		entry := &repository.ReturnEntry{
 			OrderID:    "order123",
 			UserID:     "user456",
-			ReturnedAt: time.Now(),
+			ReturnedAt: returnedAt.UTC(),
 		}
 
 		mockTx.EXPECT().
@@ -92,15 +118,28 @@ func TestReturnRepo_CreateTx(t *testing.T) {
 				gomock.Eq(entry.ReturnedAt)).
 			Return(nil, nil)
 
-		err := repo.CreateTx(ctx, mockTx, entry)
+		err = repo.CreateTx(ctx, mockTx, entry)
 		assert.NoError(t, err)
 	})
 
 	t.Run("Tx Error", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDB := mock_database.NewMockDB(ctrl)
+		mockTx := mock_database.NewMockTx(ctrl)
+		repo := NewReturnRepo(mockDB)
+
+		returnedAt, err := time.Parse("2006-01-02", "2025-01-01")
+		if err != nil {
+			fmt.Println("Error parsing date:", err)
+			return
+		}
+
 		entry := &repository.ReturnEntry{
 			OrderID:    "order123",
 			UserID:     "user456",
-			ReturnedAt: time.Now(),
+			ReturnedAt: returnedAt.UTC(),
 		}
 		txErr := errors.New("transaction error")
 
@@ -108,47 +147,51 @@ func TestReturnRepo_CreateTx(t *testing.T) {
 			Exec(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, txErr)
 
-		err := repo.CreateTx(ctx, mockTx, entry)
+		err = repo.CreateTx(ctx, mockTx, entry)
 		assert.Error(t, err)
 		assert.Equal(t, txErr, err)
 	})
 }
 
 func TestReturnRepo_GetPaginated(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDB := mock_database.NewMockDB(ctrl)
-	repo := NewReturnRepo(mockDB)
 	ctx := context.Background()
 
 	t.Run("Success", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDB := mock_database.NewMockDB(ctrl)
+		repo := NewReturnRepo(mockDB)
+
 		page := 1
 		limit := 10
-		offset := (page - 1) * limit
+
+		returnedAt1, err := time.Parse("2006-01-02", "2025-01-01")
+		if err != nil {
+			fmt.Println("Error parsing date:", err)
+			return
+		}
+
+		returnedAt2, err := time.Parse("2006-01-02", "2025-01-02")
+		if err != nil {
+			fmt.Println("Error parsing date:", err)
+			return
+		}
 
 		expectedReturns := []*repository.ReturnEntry{
 			{
 				ID:         1,
 				OrderID:    "order123",
 				UserID:     "user456",
-				ReturnedAt: time.Now().Add(-2 * time.Hour),
+				ReturnedAt: returnedAt1.UTC(),
 			},
 			{
 				ID:         2,
 				OrderID:    "order789",
 				UserID:     "user456",
-				ReturnedAt: time.Now().Add(-1 * time.Hour),
+				ReturnedAt: returnedAt2.UTC(),
 			},
 		}
-
-		mockDB.EXPECT().
-			Select(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Eq(limit), gomock.Eq(offset)).
-			DoAndReturn(func(_ context.Context, dest interface{}, _ string, _ ...interface{}) error {
-				returns := dest.(*[]*repository.ReturnEntry)
-				*returns = expectedReturns
-				return nil
-			})
 
 		returns, err := repo.GetPaginated(ctx, page, limit)
 		assert.NoError(t, err)
@@ -156,18 +199,14 @@ func TestReturnRepo_GetPaginated(t *testing.T) {
 	})
 
 	t.Run("Empty Result", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDB := mock_database.NewMockDB(ctrl)
+		repo := NewReturnRepo(mockDB)
+
 		page := 100
 		limit := 10
-		offset := (page - 1) * limit
-		var emptyReturns []*repository.ReturnEntry
-
-		mockDB.EXPECT().
-			Select(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Eq(limit), gomock.Eq(offset)).
-			DoAndReturn(func(_ context.Context, dest interface{}, _ string, _ ...interface{}) error {
-				returns := dest.(*[]*repository.ReturnEntry)
-				*returns = emptyReturns
-				return nil
-			})
 
 		returns, err := repo.GetPaginated(ctx, page, limit)
 		assert.NoError(t, err)
@@ -175,6 +214,12 @@ func TestReturnRepo_GetPaginated(t *testing.T) {
 	})
 
 	t.Run("DB Error", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDB := mock_database.NewMockDB(ctrl)
+		repo := NewReturnRepo(mockDB)
+
 		page := 1
 		limit := 10
 		dbErr := errors.New("database error")

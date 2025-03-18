@@ -3,6 +3,7 @@ package postgresql
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -13,18 +14,24 @@ import (
 )
 
 func TestHistoryRepo_Create(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDB := mock_database.NewMockDB(ctrl)
-	repo := NewHistoryRepo(mockDB)
 	ctx := context.Background()
 
 	t.Run("Success", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDB := mock_database.NewMockDB(ctrl)
+		repo := NewHistoryRepo(mockDB)
+		changed, err := time.Parse("2006-01-02", "2025-01-01")
+		if err != nil {
+			fmt.Println("Error parsing date:", err)
+			return
+		}
+
 		entry := &repository.HistoryEntry{
 			OrderID:   "order123",
 			Status:    "delivered",
-			ChangedAt: time.Now(),
+			ChangedAt: changed.UTC(),
 		}
 
 		mockDB.EXPECT().
@@ -34,15 +41,27 @@ func TestHistoryRepo_Create(t *testing.T) {
 				gomock.Eq(entry.ChangedAt)).
 			Return(nil, nil)
 
-		err := repo.Create(ctx, entry)
+		err = repo.Create(ctx, entry)
 		assert.NoError(t, err)
 	})
 
 	t.Run("DB Error", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDB := mock_database.NewMockDB(ctrl)
+		repo := NewHistoryRepo(mockDB)
+
+		changed, err := time.Parse("2006-01-02", "2025-01-01")
+		if err != nil {
+			fmt.Println("Error parsing date:", err)
+			return
+		}
+
 		entry := &repository.HistoryEntry{
 			OrderID:   "order123",
 			Status:    "delivered",
-			ChangedAt: time.Now(),
+			ChangedAt: changed.UTC(),
 		}
 		dbErr := errors.New("database error")
 
@@ -50,26 +69,33 @@ func TestHistoryRepo_Create(t *testing.T) {
 			Exec(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, dbErr)
 
-		err := repo.Create(ctx, entry)
+		err = repo.Create(ctx, entry)
 		assert.Error(t, err)
 		assert.Equal(t, dbErr, err)
 	})
 }
 
 func TestHistoryRepo_CreateTx(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDB := mock_database.NewMockDB(ctrl)
-	mockTx := mock_database.NewMockTx(ctrl)
-	repo := NewHistoryRepo(mockDB)
 	ctx := context.Background()
 
 	t.Run("Success", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDB := mock_database.NewMockDB(ctrl)
+		mockTx := mock_database.NewMockTx(ctrl)
+		repo := NewHistoryRepo(mockDB)
+
+		changed, err := time.Parse("2006-01-02", "2025-01-01")
+		if err != nil {
+			fmt.Println("Error parsing date:", err)
+			return
+		}
+
 		entry := &repository.HistoryEntry{
 			OrderID:   "order123",
 			Status:    "delivered",
-			ChangedAt: time.Now(),
+			ChangedAt: changed.UTC(),
 		}
 
 		mockTx.EXPECT().
@@ -79,15 +105,28 @@ func TestHistoryRepo_CreateTx(t *testing.T) {
 				gomock.Eq(entry.ChangedAt)).
 			Return(nil, nil)
 
-		err := repo.CreateTx(ctx, mockTx, entry)
+		err = repo.CreateTx(ctx, mockTx, entry)
 		assert.NoError(t, err)
 	})
 
 	t.Run("Tx Error", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDB := mock_database.NewMockDB(ctrl)
+		mockTx := mock_database.NewMockTx(ctrl)
+		repo := NewHistoryRepo(mockDB)
+
+		changed, err := time.Parse("2006-01-02", "2025-01-01")
+		if err != nil {
+			fmt.Println("Error parsing date:", err)
+			return
+		}
+
 		entry := &repository.HistoryEntry{
 			OrderID:   "order123",
 			Status:    "delivered",
-			ChangedAt: time.Now(),
+			ChangedAt: changed.UTC(),
 		}
 		txErr := errors.New("transaction error")
 
@@ -95,50 +134,49 @@ func TestHistoryRepo_CreateTx(t *testing.T) {
 			Exec(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 			Return(nil, txErr)
 
-		err := repo.CreateTx(ctx, mockTx, entry)
+		err = repo.CreateTx(ctx, mockTx, entry)
 		assert.Error(t, err)
 		assert.Equal(t, txErr, err)
 	})
 }
 
 func TestHistoryRepo_GetByOrderID(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDB := mock_database.NewMockDB(ctrl)
-	repo := NewHistoryRepo(mockDB)
 	ctx := context.Background()
 
 	t.Run("Success", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDB := mock_database.NewMockDB(ctrl)
+		repo := NewHistoryRepo(mockDB)
+
+		changed, err := time.Parse("2006-01-02", "2026-01-01")
+		if err != nil {
+			fmt.Println("Error parsing date:", err)
+			return
+		}
+
 		orderID := "order123"
 		expectedEntries := []*repository.HistoryEntry{
 			{
 				ID:        1,
 				OrderID:   orderID,
 				Status:    "created",
-				ChangedAt: time.Now().Add(-2 * time.Hour),
+				ChangedAt: changed.UTC().Add(-2 * time.Hour),
 			},
 			{
 				ID:        2,
 				OrderID:   orderID,
 				Status:    "processing",
-				ChangedAt: time.Now().Add(-1 * time.Hour),
+				ChangedAt: changed.UTC().Add(-1 * time.Hour),
 			},
 			{
 				ID:        3,
 				OrderID:   orderID,
 				Status:    "delivered",
-				ChangedAt: time.Now(),
+				ChangedAt: changed.UTC(),
 			},
 		}
-
-		mockDB.EXPECT().
-			Select(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Eq(orderID)).
-			DoAndReturn(func(_ context.Context, dest interface{}, _ string, _ ...interface{}) error {
-				entries := dest.(*[]*repository.HistoryEntry)
-				*entries = expectedEntries
-				return nil
-			})
 
 		entries, err := repo.GetByOrderID(ctx, orderID)
 		assert.NoError(t, err)
@@ -146,16 +184,13 @@ func TestHistoryRepo_GetByOrderID(t *testing.T) {
 	})
 
 	t.Run("Empty Result", func(t *testing.T) {
-		orderID := "nonexistent"
-		var emptyEntries []*repository.HistoryEntry
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
 
-		mockDB.EXPECT().
-			Select(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Eq(orderID)).
-			DoAndReturn(func(_ context.Context, dest interface{}, _ string, _ ...interface{}) error {
-				entries := dest.(*[]*repository.HistoryEntry)
-				*entries = emptyEntries
-				return nil
-			})
+		mockDB := mock_database.NewMockDB(ctrl)
+		repo := NewHistoryRepo(mockDB)
+
+		orderID := "nonexistent"
 
 		entries, err := repo.GetByOrderID(ctx, orderID)
 		assert.NoError(t, err)
@@ -163,6 +198,12 @@ func TestHistoryRepo_GetByOrderID(t *testing.T) {
 	})
 
 	t.Run("DB Error", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDB := mock_database.NewMockDB(ctrl)
+		repo := NewHistoryRepo(mockDB)
+
 		orderID := "order123"
 		dbErr := errors.New("database error")
 

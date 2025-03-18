@@ -26,13 +26,12 @@ func NewFromEnv() *TDB {
 	return &TDB{DB: pool}
 }
 
-func (tdb *TDB) SetUp(t *testing.T, fixture string) {
-	t.Helper()
+func (tdb *TDB) SetUp(t *testing.T, fixtures ...string) {
 
 	_, err := tdb.DB.Exec(context.Background(), "TRUNCATE orders, returns, order_history CASCADE")
 	require.NoError(t, err)
 
-	if fixture != "" {
+	for _, fixture := range fixtures {
 		fixtureSQL, err := os.ReadFile(fmt.Sprintf("../fixtures/%s.sql", fixture))
 		if err == nil {
 			_, err = tdb.DB.Exec(context.Background(), string(fixtureSQL))

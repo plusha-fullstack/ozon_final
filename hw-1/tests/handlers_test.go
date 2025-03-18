@@ -31,13 +31,13 @@ func (m *mockUserRepo) ValidateUser(ctx context.Context, username, password stri
 
 func init() {
 	db = postgresql.NewFromEnv()
+
 	storage := storage.NewPostgresStorage(db.DB)
-	srv = server.New(storage, mockUser)
+	srv = server.New(storage, &mockUserRepo{})
 }
 
 func TestCreateOrder(t *testing.T) {
-	t.Parallel()
-	db.SetUp(t, "")
+	tdb.SetUp(t, "orders_fixture", "order_history_fixture", "returns_fixture", "users_fixture")
 	defer db.TearDown(t)
 
 	order := collections.Order1
@@ -59,9 +59,9 @@ func TestCreateOrder(t *testing.T) {
 	assert.Equal(t, order.RecipientID, createdOrder.RecipientID)
 	assert.Equal(t, order.Price, createdOrder.Price)
 }
+
 func TestCreateOrderInvalidData(t *testing.T) {
-	t.Parallel()
-	db.SetUp(t, "")
+	tdb.SetUp(t, "orders_fixture", "order_history_fixture", "returns_fixture", "users_fixture")
 	defer db.TearDown(t)
 
 	invalidOrder := struct {
@@ -84,8 +84,7 @@ func TestCreateOrderInvalidData(t *testing.T) {
 }
 
 func TestGetOrder(t *testing.T) {
-	t.Parallel()
-	db.SetUp(t, "orders")
+	tdb.SetUp(t, "orders_fixture", "order_history_fixture", "returns_fixture", "users_fixture")
 	defer db.TearDown(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/orders/order1", nil)
@@ -107,8 +106,7 @@ func TestGetOrder(t *testing.T) {
 }
 
 func TestUpdateOrderStatus(t *testing.T) {
-	t.Parallel()
-	db.SetUp(t, "orders")
+	tdb.SetUp(t, "orders_fixture", "order_history_fixture", "returns_fixture", "users_fixture")
 	defer db.TearDown(t)
 
 	statusUpdate := struct {

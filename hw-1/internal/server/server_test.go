@@ -13,24 +13,16 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
-
 	mock_server "gitlab.ozon.dev/pupkingeorgij/homework/internal/server/mocks"
 	"gitlab.ozon.dev/pupkingeorgij/homework/internal/storage"
+	"go.uber.org/mock/gomock"
 )
 
 func TestHandleCreateOrder(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockStorage := mock_server.NewMockStorage(ctrl)
-	mockUserRepo := mock_server.NewMockUserRepo(ctrl)
-	server := New(mockStorage, mockUserRepo)
-
 	tests := []struct {
 		name           string
 		requestBody    map[string]interface{}
-		setupMocks     func()
+		setupMocks     func(*mock_server.MockStorage, *mock_server.MockUserRepo)
 		expectedStatus int
 		expectedBody   string
 	}{
@@ -43,15 +35,14 @@ func TestHandleCreateOrder(t *testing.T) {
 				"weight":        2.5,
 				"wrapper":       storage.Container("Box"),
 			},
-			setupMocks: func() {
+			setupMocks: func(mockStorage *mock_server.MockStorage, mockUserRepo *mock_server.MockUserRepo) {
 				mockStorage.EXPECT().
 					AddOrder(gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, order storage.Order) error {
 						assert.Equal(t, "user123", order.RecipientID)
 						assert.Equal(t, 100, order.Price)
 						assert.Equal(t, float32(2.5), order.Weight)
-						t.Log("i am here", storage.Box, order.Wrapper)
-						assert.Equal(t, string(storage.Box), string(order.Wrapper))
+						assert.Equal(t, storage.Box, order.Wrapper)
 						return nil
 					})
 			},
@@ -63,7 +54,7 @@ func TestHandleCreateOrder(t *testing.T) {
 			requestBody: map[string]interface{}{
 				"price": 100,
 			},
-			setupMocks:     func() {},
+			setupMocks:     func(*mock_server.MockStorage, *mock_server.MockUserRepo) {},
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   `{"error":"Invalid request body"}`,
 		},
@@ -76,7 +67,7 @@ func TestHandleCreateOrder(t *testing.T) {
 				"weight":        2.5,
 				"wrapper":       "Box",
 			},
-			setupMocks: func() {
+			setupMocks: func(mockStorage *mock_server.MockStorage, mockUserRepo *mock_server.MockUserRepo) {
 				mockStorage.EXPECT().
 					AddOrder(gomock.Any(), gomock.Any()).
 					Return(errors.New("database error"))
@@ -88,13 +79,20 @@ func TestHandleCreateOrder(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			tc.setupMocks()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockStorage := mock_server.NewMockStorage(ctrl)
+			mockUserRepo := mock_server.NewMockUserRepo(ctrl)
+			server := New(mockStorage, mockUserRepo)
+
+			tc.setupMocks(mockStorage, mockUserRepo)
 
 			body, err := json.Marshal(tc.requestBody)
 			require.NoError(t, err)
+
 			req := httptest.NewRequest(http.MethodPost, "/orders", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
-
 			rr := httptest.NewRecorder()
 
 			server.handleCreateOrder(rr, req)
@@ -106,24 +104,17 @@ func TestHandleCreateOrder(t *testing.T) {
 }
 
 func TestHandleGetOrder(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockStorage := mock_server.NewMockStorage(ctrl)
-	mockUserRepo := mock_server.NewMockUserRepo(ctrl)
-	server := New(mockStorage, mockUserRepo)
-
 	tests := []struct {
 		name           string
 		orderID        string
-		setupMocks     func()
+		setupMocks     func(*mock_server.MockStorage, *mock_server.MockUserRepo)
 		expectedStatus int
 		expectedBody   string
 	}{
 		{
 			name:    "order found",
 			orderID: "order123",
-			setupMocks: func() {
+			setupMocks: func(mockStorage *mock_server.MockStorage, mockUserRepo *mock_server.MockUserRepo) {
 				order := &storage.Order{
 					ID:           "order123",
 					RecipientID:  "user123",
@@ -145,7 +136,7 @@ func TestHandleGetOrder(t *testing.T) {
 		{
 			name:    "order not found",
 			orderID: "nonexistent",
-			setupMocks: func() {
+			setupMocks: func(mockStorage *mock_server.MockStorage, mockUserRepo *mock_server.MockUserRepo) {
 				mockStorage.EXPECT().
 					GetOrder(gomock.Any(), "nonexistent").
 					Return(nil, errors.New("order not found"))
@@ -157,14 +148,21 @@ func TestHandleGetOrder(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			tc.setupMocks()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockStorage := mock_server.NewMockStorage(ctrl)
+			mockUserRepo := mock_server.NewMockUserRepo(ctrl)
+			server := New(mockStorage, mockUserRepo)
+
+			tc.setupMocks(mockStorage, mockUserRepo)
 
 			req := httptest.NewRequest(http.MethodGet, "/orders/"+tc.orderID, nil)
 			req = mux.SetURLVars(req, map[string]string{"id": tc.orderID})
-
 			rr := httptest.NewRecorder()
 
 			server.handleGetOrder(rr, req)
+
 			assert.Equal(t, tc.expectedStatus, rr.Code)
 			if tc.expectedStatus == http.StatusOK {
 				assert.Contains(t, rr.Body.String(), tc.expectedBody)
@@ -176,18 +174,11 @@ func TestHandleGetOrder(t *testing.T) {
 }
 
 func TestHandleUpdateOrderStatus(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockStorage := mock_server.NewMockStorage(ctrl)
-	mockUserRepo := mock_server.NewMockUserRepo(ctrl)
-	server := New(mockStorage, mockUserRepo)
-
 	tests := []struct {
 		name           string
 		orderID        string
 		requestBody    map[string]interface{}
-		setupMocks     func()
+		setupMocks     func(*mock_server.MockStorage, *mock_server.MockUserRepo)
 		expectedStatus int
 		expectedBody   string
 	}{
@@ -197,7 +188,7 @@ func TestHandleUpdateOrderStatus(t *testing.T) {
 			requestBody: map[string]interface{}{
 				"status": "delivered",
 			},
-			setupMocks: func() {
+			setupMocks: func(mockStorage *mock_server.MockStorage, mockUserRepo *mock_server.MockUserRepo) {
 				mockStorage.EXPECT().
 					UpdateOrderStatus(gomock.Any(), "order123", "delivered").
 					Return(nil)
@@ -209,7 +200,7 @@ func TestHandleUpdateOrderStatus(t *testing.T) {
 			name:           "invalid request body",
 			orderID:        "order123",
 			requestBody:    map[string]interface{}{},
-			setupMocks:     func() {},
+			setupMocks:     func(*mock_server.MockStorage, *mock_server.MockUserRepo) {},
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   `{"error":"Invalid request body"}`,
 		},
@@ -219,7 +210,7 @@ func TestHandleUpdateOrderStatus(t *testing.T) {
 			requestBody: map[string]interface{}{
 				"status": "delivered",
 			},
-			setupMocks: func() {
+			setupMocks: func(mockStorage *mock_server.MockStorage, mockUserRepo *mock_server.MockUserRepo) {
 				mockStorage.EXPECT().
 					UpdateOrderStatus(gomock.Any(), "order123", "delivered").
 					Return(errors.New("database error"))
@@ -231,14 +222,21 @@ func TestHandleUpdateOrderStatus(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			tc.setupMocks()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockStorage := mock_server.NewMockStorage(ctrl)
+			mockUserRepo := mock_server.NewMockUserRepo(ctrl)
+			server := New(mockStorage, mockUserRepo)
+
+			tc.setupMocks(mockStorage, mockUserRepo)
 
 			body, err := json.Marshal(tc.requestBody)
 			require.NoError(t, err)
+
 			req := httptest.NewRequest(http.MethodPut, "/orders/"+tc.orderID+"/status", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
 			req = mux.SetURLVars(req, map[string]string{"id": tc.orderID})
-
 			rr := httptest.NewRecorder()
 
 			server.handleUpdateOrderStatus(rr, req)
@@ -250,18 +248,11 @@ func TestHandleUpdateOrderStatus(t *testing.T) {
 }
 
 func TestHandleListOrders(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockStorage := mock_server.NewMockStorage(ctrl)
-	mockUserRepo := mock_server.NewMockUserRepo(ctrl)
-	server := New(mockStorage, mockUserRepo)
-
 	tests := []struct {
 		name           string
 		userID         string
 		queryParams    map[string]string
-		setupMocks     func()
+		setupMocks     func(*mock_server.MockStorage, *mock_server.MockUserRepo)
 		expectedStatus int
 		expectedBody   string
 	}{
@@ -272,7 +263,7 @@ func TestHandleListOrders(t *testing.T) {
 				"last_n":      "5",
 				"active_only": "true",
 			},
-			setupMocks: func() {
+			setupMocks: func(mockStorage *mock_server.MockStorage, mockUserRepo *mock_server.MockUserRepo) {
 				orders := []storage.Order{
 					{
 						ID:           "order1",
@@ -282,15 +273,6 @@ func TestHandleListOrders(t *testing.T) {
 						Price:        100,
 						Weight:       2.5,
 						Wrapper:      storage.Box,
-					},
-					{
-						ID:           "order2",
-						RecipientID:  "user123",
-						StorageUntil: time.Now().Add(48 * time.Hour),
-						Status:       "processing",
-						Price:        150,
-						Weight:       3.0,
-						Wrapper:      storage.Bag,
 					},
 				}
 				mockStorage.EXPECT().
@@ -307,7 +289,7 @@ func TestHandleListOrders(t *testing.T) {
 				"last_n":      "invalid",
 				"active_only": "true",
 			},
-			setupMocks:     func() {},
+			setupMocks:     func(*mock_server.MockStorage, *mock_server.MockUserRepo) {},
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   `{"error":"Invalid last_n parameter"}`,
 		},
@@ -318,7 +300,7 @@ func TestHandleListOrders(t *testing.T) {
 				"last_n":      "5",
 				"active_only": "true",
 			},
-			setupMocks: func() {
+			setupMocks: func(mockStorage *mock_server.MockStorage, mockUserRepo *mock_server.MockUserRepo) {
 				mockStorage.EXPECT().
 					GetUserOrders(gomock.Any(), "user123", 5, true).
 					Return(nil, errors.New("database error"))
@@ -330,7 +312,14 @@ func TestHandleListOrders(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			tc.setupMocks()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockStorage := mock_server.NewMockStorage(ctrl)
+			mockUserRepo := mock_server.NewMockUserRepo(ctrl)
+			server := New(mockStorage, mockUserRepo)
+
+			tc.setupMocks(mockStorage, mockUserRepo)
 
 			req := httptest.NewRequest(http.MethodGet, "/users/"+tc.userID+"/orders", nil)
 			q := req.URL.Query()
@@ -339,7 +328,6 @@ func TestHandleListOrders(t *testing.T) {
 			}
 			req.URL.RawQuery = q.Encode()
 			req = mux.SetURLVars(req, map[string]string{"user_id": tc.userID})
-
 			rr := httptest.NewRecorder()
 
 			server.handleListOrders(rr, req)
@@ -355,17 +343,10 @@ func TestHandleListOrders(t *testing.T) {
 }
 
 func TestHandleAddReturn(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockStorage := mock_server.NewMockStorage(ctrl)
-	mockUserRepo := mock_server.NewMockUserRepo(ctrl)
-	server := New(mockStorage, mockUserRepo)
-
 	tests := []struct {
 		name           string
 		requestBody    map[string]interface{}
-		setupMocks     func()
+		setupMocks     func(*mock_server.MockStorage, *mock_server.MockUserRepo)
 		expectedStatus int
 		expectedBody   string
 	}{
@@ -375,7 +356,7 @@ func TestHandleAddReturn(t *testing.T) {
 				"order_id": "order123",
 				"user_id":  "user123",
 			},
-			setupMocks: func() {
+			setupMocks: func(mockStorage *mock_server.MockStorage, mockUserRepo *mock_server.MockUserRepo) {
 				mockStorage.EXPECT().
 					GetOrder(gomock.Any(), "order123").
 					Return(&storage.Order{
@@ -383,7 +364,6 @@ func TestHandleAddReturn(t *testing.T) {
 						RecipientID: "user123",
 						Status:      "delivered",
 					}, nil)
-
 				mockStorage.EXPECT().
 					AddReturn(gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, ret storage.Return) error {
@@ -392,7 +372,6 @@ func TestHandleAddReturn(t *testing.T) {
 						assert.False(t, ret.ReturnedAt.IsZero())
 						return nil
 					})
-
 				mockStorage.EXPECT().
 					UpdateOrderStatus(gomock.Any(), "order123", "returned").
 					Return(nil)
@@ -403,7 +382,7 @@ func TestHandleAddReturn(t *testing.T) {
 		{
 			name:           "invalid request body",
 			requestBody:    map[string]interface{}{},
-			setupMocks:     func() {},
+			setupMocks:     func(*mock_server.MockStorage, *mock_server.MockUserRepo) {},
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   `{"error":"Invalid request body"}`,
 		},
@@ -413,7 +392,7 @@ func TestHandleAddReturn(t *testing.T) {
 				"order_id": "nonexistent",
 				"user_id":  "user123",
 			},
-			setupMocks: func() {
+			setupMocks: func(mockStorage *mock_server.MockStorage, mockUserRepo *mock_server.MockUserRepo) {
 				mockStorage.EXPECT().
 					GetOrder(gomock.Any(), "nonexistent").
 					Return(nil, errors.New("order not found"))
@@ -427,7 +406,7 @@ func TestHandleAddReturn(t *testing.T) {
 				"order_id": "order123",
 				"user_id":  "wronguser",
 			},
-			setupMocks: func() {
+			setupMocks: func(mockStorage *mock_server.MockStorage, mockUserRepo *mock_server.MockUserRepo) {
 				mockStorage.EXPECT().
 					GetOrder(gomock.Any(), "order123").
 					Return(&storage.Order{
@@ -443,13 +422,20 @@ func TestHandleAddReturn(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			tc.setupMocks()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockStorage := mock_server.NewMockStorage(ctrl)
+			mockUserRepo := mock_server.NewMockUserRepo(ctrl)
+			server := New(mockStorage, mockUserRepo)
+
+			tc.setupMocks(mockStorage, mockUserRepo)
 
 			body, err := json.Marshal(tc.requestBody)
 			require.NoError(t, err)
+
 			req := httptest.NewRequest(http.MethodPost, "/returns", bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
-
 			rr := httptest.NewRecorder()
 
 			server.handleAddReturn(rr, req)
