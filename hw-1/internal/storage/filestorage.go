@@ -1,3 +1,4 @@
+//go:generate mockgen -source ./filestorage.go -destination=./mocks/filestorage.go -package=mock_storage
 package storage
 
 import (
