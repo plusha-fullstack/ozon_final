@@ -36,7 +36,7 @@ func main() {
 	srv := server.New(stg, userRepo)
 
 	go func() {
-		if err := srv.Run("9000"); err != nil {
+		if err := srv.Run(ctx, "9000"); err != nil {
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()

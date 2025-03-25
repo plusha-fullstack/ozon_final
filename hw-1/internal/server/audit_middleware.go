@@ -13,7 +13,6 @@ func (s *Server) auditLogMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		contentType := r.Header.Get("Content-Type")
 		skipRequestBody := strings.Contains(contentType, "multipart/form-data")
-
 		entry := AuditLogEntry{
 			Timestamp: time.Now(),
 			Method:    r.Method,
@@ -61,7 +60,7 @@ func (s *Server) auditLogMiddleware(next http.Handler) http.Handler {
 		entry.StatusCode = wrw.GetStatusCode()
 		entry.Response = string(wrw.GetBody())
 
-		s.AuditManager.LogEntry(entry)
+		s.AuditManager.LogEntry(r.Context(), entry)
 	})
 }
 

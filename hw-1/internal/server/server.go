@@ -46,7 +46,7 @@ func New(storage Storage, userRepo UserRepo) *Server {
 	}
 }
 
-func (s *Server) Run(port string) error {
+func (s *Server) Run(ctx context.Context, port string) error {
 	router := s.setupRoutes()
 
 	s.server = &http.Server{
@@ -56,7 +56,7 @@ func (s *Server) Run(port string) error {
 		WriteTimeout: 10 * time.Second,
 	}
 
-	s.AuditManager.Start()
+	s.AuditManager.Start(ctx)
 
 	go s.handleShutdown()
 
@@ -88,7 +88,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	log.Println("HTTP server shutdown completed")
 
-	s.AuditManager.Shutdown()
+	s.AuditManager.Shutdown(ctx)
 	log.Println("Server shutdown completed successfully")
 
 	return nil
