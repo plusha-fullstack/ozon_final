@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"gitlab.ozon.dev/pupkingeorgij/homework/internal/storage"
@@ -28,19 +31,22 @@ type UserRepo interface {
 }
 
 type Server struct {
-	storage  Storage
-	userRepo UserRepo
-	server   *http.Server
+	storage      Storage
+	userRepo     UserRepo
+	server       *http.Server
+	AuditManager *AuditManager
 }
 
 func New(storage Storage, userRepo UserRepo) *Server {
+	auditManager := NewAuditManager(2, 5, 500*time.Millisecond)
 	return &Server{
-		storage:  storage,
-		userRepo: userRepo,
+		storage:      storage,
+		userRepo:     userRepo,
+		AuditManager: auditManager,
 	}
 }
 
-func (s *Server) Run(port string) error {
+func (s *Server) Run(ctx context.Context, port string) error {
 	router := s.setupRoutes()
 
 	s.server = &http.Server{
@@ -50,18 +56,47 @@ func (s *Server) Run(port string) error {
 		WriteTimeout: 10 * time.Second,
 	}
 
+	s.AuditManager.Start(ctx)
+
+	go s.handleShutdown()
+
 	log.Printf("Server starting on port %s", port)
-	return s.server.ListenAndServe()
+	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
+}
+
+func (s *Server) handleShutdown() {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	sig := <-signals
+	log.Printf("Received signal %v, initiating graceful shutdown...", sig)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := s.Shutdown(ctx); err != nil {
+		log.Printf("ERROR: Server shutdown failed: %v", err)
+	}
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
-	return s.server.Shutdown(ctx)
-}
+	log.Println("Shutting down server...")
 
+	if err := s.server.Shutdown(ctx); err != nil {
+		return err
+	}
+	log.Println("HTTP server shutdown completed")
+
+	s.AuditManager.Shutdown(ctx)
+	log.Println("Server shutdown completed successfully")
+
+	return nil
+}
 func (s *Server) setupRoutes() http.Handler {
 	mux := http.NewServeMux()
 
-	handler := s.basicAuthMiddleware(mux)
+	handler := s.auditLogMiddleware(s.basicAuthMiddleware(mux))
 
 	mux.HandleFunc("POST /orders", s.handleCreateOrder)
 	mux.HandleFunc("GET /orders/{id}", s.handleGetOrder)
