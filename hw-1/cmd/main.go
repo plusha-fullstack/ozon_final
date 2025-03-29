@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"gitlab.ozon.dev/pupkingeorgij/homework/internal/cache"
 	"gitlab.ozon.dev/pupkingeorgij/homework/internal/db"
 	"gitlab.ozon.dev/pupkingeorgij/homework/internal/repository/postgresql"
 	"gitlab.ozon.dev/pupkingeorgij/homework/internal/server"
@@ -31,13 +33,28 @@ func main() {
 	var historyRepo storage.HistoryRepository = postgresql.NewHistoryRepo(dbPool)
 	var userRepo storage.UserRepository = postgresql.NewUserRepo(dbPool)
 
-	stg := storage.NewStorage(ctx, dbPool, orderRepo, returnRepo, historyRepo, userRepo)
+	orderCacheRepo, ok := orderRepo.(cache.OrderRepository)
+	if !ok {
+		log.Fatal("Order repository does not implement cache.OrderRepository interface")
+		return
+	}
+	orderCache := cache.NewOrderCache(orderCacheRepo)
+
+	initCtx, initCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer initCancel()
+	if err := orderCache.LoadInitialData(initCtx); err != nil {
+		log.Printf("WARNING: Failed to load initial order cache data: %v. Starting with an empty cache.", err)
+	}
+
+	stg := storage.NewStorage(ctx, dbPool, orderRepo, returnRepo, historyRepo, userRepo, orderCache)
 
 	srv := server.New(stg, userRepo)
 
 	go func() {
 		if err := srv.Run(ctx, "9000"); err != nil {
-			log.Fatalf("Failed to start server: %v", err)
+			if err != http.ErrServerClosed {
+				log.Fatalf("Failed to start server: %v", err)
+			}
 		}
 	}()
 
@@ -46,7 +63,7 @@ func main() {
 	<-ctx.Done()
 	log.Println("Shutting down server...")
 
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
