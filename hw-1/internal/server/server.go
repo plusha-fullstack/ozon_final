@@ -4,11 +4,13 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,6 +26,8 @@ type Storage interface {
 	AddReturn(ctx context.Context, ret storage.Return) error
 	GetReturns(ctx context.Context, page, limit int) ([]storage.Return, error)
 	GetOrderHistory(ctx context.Context, orderID string) ([]storage.HistoryEntry, error)
+	IssueOrders(ctx context.Context, userID string, orderIDs []string) ([]storage.IssueOrdersResult, error)
+	AcceptReturns(ctx context.Context, userID string, orderIDs []string) ([]storage.AcceptReturnsResult, error)
 }
 
 type UserRepo interface {
@@ -331,24 +335,8 @@ func (s *Server) handleAddReturn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	order, err := s.storage.GetOrder(r.Context(), returnRequest.OrderID)
-	if err != nil {
-		respondError(w, http.StatusNotFound, "Error: order not found")
-		return
-	}
-
-	if order.RecipientID != returnRequest.UserID {
-		respondError(w, http.StatusBadRequest, "Error: order does not belong to user")
-		return
-	}
-
-	if order.Status != "issued" {
-		respondError(w, http.StatusBadRequest, "Error: order is not in 'issued' status")
-		return
-	}
-
-	if time.Since(order.UpdatedAt) > 48*time.Hour {
-		respondError(w, http.StatusBadRequest, "Error: return period expired for order")
+	if returnRequest.OrderID == "" || returnRequest.UserID == "" {
+		respondError(w, http.StatusBadRequest, "Missing order_id or user_id")
 		return
 	}
 
@@ -359,17 +347,21 @@ func (s *Server) handleAddReturn(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.storage.AddReturn(r.Context(), ret); err != nil {
-		respondError(w, http.StatusInternalServerError, "Error: failed to accept return")
-		return
-	}
 
-	if err := s.storage.UpdateOrderStatus(r.Context(), returnRequest.OrderID, "returned"); err != nil {
-		respondError(w, http.StatusInternalServerError, "Error: failed to update order status")
+		log.Printf("Error adding return for order %s: %v", returnRequest.OrderID, err)
+		if strings.Contains(err.Error(), "not found") ||
+			strings.Contains(err.Error(), "does not belong") ||
+			strings.Contains(err.Error(), "not in 'issued' status") ||
+			strings.Contains(err.Error(), "return period expired") {
+			respondError(w, http.StatusBadRequest, "Error: "+err.Error())
+		} else {
+			respondError(w, http.StatusInternalServerError, "Error: failed to process return")
+		}
 		return
 	}
 
 	respondJSON(w, http.StatusOK, map[string]string{
-		"message": "Return accepted for order",
+		"message": "Return accepted and order status updated for order " + returnRequest.OrderID,
 	})
 }
 
@@ -414,39 +406,29 @@ func (s *Server) handleIssueOrders(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	if issueRequest.UserID == "" || len(issueRequest.OrderIDs) == 0 {
+		respondError(w, http.StatusBadRequest, "Missing user_id or order_ids")
+		return
+	}
 
-	results := make(map[string]string)
+	results, err := s.storage.IssueOrders(r.Context(), issueRequest.UserID, issueRequest.OrderIDs)
 
-	for _, orderID := range issueRequest.OrderIDs {
-		order, err := s.storage.GetOrder(r.Context(), orderID)
-		if err != nil {
-			results[orderID] = "Order not found"
-			continue
-		}
-
-		if order.RecipientID != issueRequest.UserID {
-			results[orderID] = "Order does not belong to user"
-			continue
-		}
-
-		if order.Status != "received" {
-			results[orderID] = "Order is not in 'received' status"
-			continue
-		}
-
-		if time.Now().UTC().After(order.StorageUntil) {
-			results[orderID] = "Order has expired"
-			continue
-		}
-
-		if err := s.storage.UpdateOrderStatus(r.Context(), orderID, "issued"); err != nil {
-			results[orderID] = "Failed to issue order"
+	responseMap := make(map[string]string)
+	for _, res := range results {
+		if res.Success {
+			responseMap[res.OrderID] = "Issued successfully"
 		} else {
-			results[orderID] = "Issued successfully"
+			responseMap[res.OrderID] = fmt.Sprintf("Failed: %s", res.Error)
 		}
 	}
 
-	respondJSON(w, http.StatusOK, results)
+	if err != nil {
+		log.Printf("Transaction error during IssueOrders for user %s: %v", issueRequest.UserID, err)
+		respondError(w, http.StatusInternalServerError, "Error processing bulk issue: "+err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, responseMap)
 }
 
 func (s *Server) handleAcceptReturns(w http.ResponseWriter, r *http.Request) {
@@ -459,46 +441,29 @@ func (s *Server) handleAcceptReturns(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	if returnRequest.UserID == "" || len(returnRequest.OrderIDs) == 0 {
+		respondError(w, http.StatusBadRequest, "Missing user_id or order_ids")
+		return
+	}
 
-	results := make(map[string]string)
+	results, err := s.storage.AcceptReturns(r.Context(), returnRequest.UserID, returnRequest.OrderIDs)
 
-	for _, orderID := range returnRequest.OrderIDs {
-		order, err := s.storage.GetOrder(r.Context(), orderID)
-		if err != nil {
-			results[orderID] = "Order not found"
-			continue
-		}
-
-		if order.RecipientID != returnRequest.UserID {
-			results[orderID] = "Order does not belong to user"
-			continue
-		}
-
-		if order.Status != "issued" {
-			results[orderID] = "Order is not in 'issued' status"
-			continue
-		}
-
-		if time.Since(order.UpdatedAt) > 48*time.Hour {
-			results[orderID] = "Return period expired"
-			continue
-		}
-
-		ret := storage.Return{
-			OrderID:    orderID,
-			UserID:     returnRequest.UserID,
-			ReturnedAt: time.Now().UTC(),
-		}
-
-		if err := s.storage.AddReturn(r.Context(), ret); err != nil {
-			results[orderID] = "Failed to accept return"
+	responseMap := make(map[string]string)
+	for _, res := range results {
+		if res.Success {
+			responseMap[res.OrderID] = "Return accepted"
 		} else {
-			s.storage.UpdateOrderStatus(r.Context(), orderID, "returned")
-			results[orderID] = "Return accepted"
+			responseMap[res.OrderID] = fmt.Sprintf("Failed: %s", res.Error)
 		}
 	}
 
-	respondJSON(w, http.StatusOK, results)
+	if err != nil {
+		log.Printf("Transaction error during AcceptReturns for user %s: %v", returnRequest.UserID, err)
+		respondError(w, http.StatusInternalServerError, "Error processing bulk return acceptance: "+err.Error())
+		return
+	}
+
+	respondJSON(w, http.StatusOK, responseMap)
 }
 
 func (s *Server) handleOrderHistory(w http.ResponseWriter, r *http.Request) {

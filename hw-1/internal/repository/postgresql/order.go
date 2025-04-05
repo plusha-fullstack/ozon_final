@@ -3,6 +3,7 @@ package postgresql
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v4"
 
@@ -109,4 +110,30 @@ func (r *OrderRepo) GetByUserID(ctx context.Context, userID string, limit int, a
 	var orders []*repository.Order
 	err := r.db.Select(ctx, &orders, query, args...)
 	return orders, err
+}
+
+func (r *OrderRepo) GetByIDTx(ctx context.Context, tx db.Tx, id string) (*repository.Order, error) {
+	var order repository.Order
+	err := tx.Get(ctx, &order, "SELECT * FROM orders WHERE id = $1 FOR UPDATE", id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, repository.ErrObjectNotFound
+		}
+		return nil, err
+	}
+	return &order, nil
+}
+
+func (r *OrderRepo) GetAllActiveOrders(ctx context.Context) ([]*repository.Order, error) {
+	query := `
+        SELECT * FROM orders 
+        WHERE status = 'received' OR status = 'issued'
+        ORDER BY created_at ASC 
+    `
+	var orders []*repository.Order
+	err := r.db.Select(ctx, &orders, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all active orders: %w", err)
+	}
+	return orders, nil
 }
