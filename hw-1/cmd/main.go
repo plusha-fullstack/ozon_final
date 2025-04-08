@@ -11,6 +11,7 @@ import (
 
 	"gitlab.ozon.dev/pupkingeorgij/homework/internal/cache"
 	"gitlab.ozon.dev/pupkingeorgij/homework/internal/db"
+	"gitlab.ozon.dev/pupkingeorgij/homework/internal/kafka"
 	"gitlab.ozon.dev/pupkingeorgij/homework/internal/repository/postgresql"
 	"gitlab.ozon.dev/pupkingeorgij/homework/internal/server"
 	"gitlab.ozon.dev/pupkingeorgij/homework/internal/storage"
@@ -32,6 +33,7 @@ func main() {
 	var returnRepo storage.ReturnRepository = postgresql.NewReturnRepo(dbPool)
 	var historyRepo storage.HistoryRepository = postgresql.NewHistoryRepo(dbPool)
 	var userRepo storage.UserRepository = postgresql.NewUserRepo(dbPool)
+	var outboxRepo storage.OutboxTaskRepository = postgresql.NewOutboxTaskRepo()
 
 	orderCacheRepo, ok := orderRepo.(cache.OrderRepository)
 	if !ok {
@@ -46,9 +48,19 @@ func main() {
 		log.Printf("WARNING: Failed to load initial order cache data: %v. Starting with an empty cache.", err)
 	}
 
-	stg := storage.NewStorage(ctx, dbPool, orderRepo, returnRepo, historyRepo, userRepo, orderCache)
+	stg := storage.NewStorage(ctx, dbPool, orderRepo, returnRepo, historyRepo, userRepo, outboxRepo, orderCache)
+
+	kafkaProducer := kafka.NewConsoleProducer()
+	publisherConfig := kafka.PublisherConfig{
+		PollInterval: 5 * time.Second,
+		BatchSize:    10,
+		MaxAttempts:  5,
+	}
+	outboxPublisher := kafka.NewPublisher(dbPool, outboxRepo, kafkaProducer, publisherConfig)
 
 	srv := server.New(stg, userRepo)
+
+	go outboxPublisher.Run(ctx)
 
 	go func() {
 		if err := srv.Run(ctx, "9000"); err != nil {
@@ -65,6 +77,9 @@ func main() {
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
+
+	log.Println("Shutting down Kafka Publisher...")
+	outboxPublisher.Shutdown()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Fatalf("Server shutdown failed: %v", err)

@@ -35,18 +35,15 @@ type UserRepo interface {
 }
 
 type Server struct {
-	storage      Storage
-	userRepo     UserRepo
-	server       *http.Server
-	AuditManager *AuditManager
+	storage  Storage
+	userRepo UserRepo
+	server   *http.Server
 }
 
 func New(storage Storage, userRepo UserRepo) *Server {
-	auditManager := NewAuditManager(2, 5, 500*time.Millisecond)
 	return &Server{
-		storage:      storage,
-		userRepo:     userRepo,
-		AuditManager: auditManager,
+		storage:  storage,
+		userRepo: userRepo,
 	}
 }
 
@@ -59,8 +56,6 @@ func (s *Server) Run(ctx context.Context, port string) error {
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
-
-	s.AuditManager.Start(ctx)
 
 	go s.handleShutdown()
 
@@ -92,7 +87,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	log.Println("HTTP server shutdown completed")
 
-	s.AuditManager.Shutdown(ctx)
 	log.Println("Server shutdown completed successfully")
 
 	return nil
@@ -100,7 +94,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 func (s *Server) setupRoutes() http.Handler {
 	mux := http.NewServeMux()
 
-	handler := s.auditLogMiddleware(s.basicAuthMiddleware(mux))
+	handler := s.basicAuthMiddleware(mux)
 
 	mux.HandleFunc("POST /orders", s.handleCreateOrder)
 	mux.HandleFunc("GET /orders/{id}", s.handleGetOrder)
