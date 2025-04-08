@@ -1,5 +1,8 @@
 -- +goose Up
 -- +goose StatementBegin
+
+CREATE TYPE task_status AS ENUM ('CREATED','PROCESSING','FAILED','DONE');
+
 CREATE TABLE IF NOT EXISTS outbox_tasks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     status task_status NOT NULL DEFAULT 'CREATED',
