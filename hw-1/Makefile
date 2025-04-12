@@ -100,3 +100,13 @@ clean-mocks:
 .PHONY: clean
 clean:
 	rm -rf $(BUILD_DIR)
+
+
+.PHONY: generate
+generate:
+	@mkdir -p internal/api/
+	@protoc --proto_path=internal/proto \
+	 --go_out=internal/api --go_opt=paths=source_relative \
+	 --go-grpc_out=internal/api --go-grpc_opt=paths=source_relative \
+	internal/proto/order_service.proto
+	@echo "gRPC code successfully generated"

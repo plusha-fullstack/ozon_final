@@ -1,0 +1,146 @@
+syntax = "proto3";
+
+package proto;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+option go_package = "gitlab.ozon.dev/pupkingeorgij/homework/internal/proto"; 
+
+service OrderService {
+  rpc CreateOrder(CreateOrderRequest) returns (CreateOrderResponse);
+  rpc GetOrder(GetOrderRequest) returns (GetOrderResponse);
+  rpc UpdateOrderStatus(UpdateOrderStatusRequest) returns (google.protobuf.Empty);
+  rpc DeleteOrder(DeleteOrderRequest) returns (google.protobuf.Empty);
+  rpc ListUserOrders(ListUserOrdersRequest) returns (ListUserOrdersResponse);
+
+  rpc AddReturn(AddReturnRequest) returns (google.protobuf.Empty);
+  rpc ListReturns(ListReturnsRequest) returns (ListReturnsResponse);
+
+  rpc IssueOrders(IssueOrdersRequest) returns (IssueOrdersResponse);
+  rpc AcceptReturns(AcceptReturnsRequest) returns (AcceptReturnsResponse);
+
+  rpc GetOrderHistory(GetOrderHistoryRequest) returns (GetOrderHistoryResponse);
+}
+
+
+message Order {
+  string id = 1;
+  string recipient_id = 2;
+  google.protobuf.Timestamp storage_until = 3;
+  string status = 4;
+  int32 price = 5;
+  float weight = 6;
+  string wrapper_type = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  bool with_additional_membrane = 10; 
+}
+
+message Return {
+  string order_id = 1;
+  string user_id = 2;
+  google.protobuf.Timestamp returned_at = 3;
+  int64 id = 4;
+}
+
+message HistoryEntry {
+  int64 id = 1;
+  string order_id = 2;
+  string status = 3;
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+
+message CreateOrderRequest {
+  string id = 1;
+  string recipient_id = 2;
+  string wrapper_type = 3;
+  int32 price = 4;
+  float weight = 5;
+  google.protobuf.Timestamp storage_until = 6;
+  bool with_additional_membrane = 7;
+}
+
+message CreateOrderResponse {
+  string id = 1;
+}
+
+message GetOrderRequest {
+  string order_id = 1;
+}
+
+message GetOrderResponse {
+  Order order = 1;
+}
+
+message UpdateOrderStatusRequest {
+  string order_id = 1;
+  string status = 2;
+}
+
+message DeleteOrderRequest {
+  string order_id = 1;
+}
+
+message ListUserOrdersRequest {
+  string user_id = 1;
+  int32 last_n = 2;
+  bool active_only = 3;
+}
+
+message ListUserOrdersResponse {
+  repeated Order orders = 1;
+}
+
+message AddReturnRequest {
+  string order_id = 1;
+  string user_id = 2;
+}
+
+message ListReturnsRequest {
+  int32 page = 1;
+  int32 limit = 2;
+}
+
+message ListReturnsResponse {
+  repeated Return returns = 1;
+}
+
+message IssueOrdersRequest {
+  string user_id = 1;
+  repeated string order_ids = 2;
+}
+
+message IssueOrdersResult {
+    string order_id = 1;
+    bool success = 2;
+    string error = 3; 
+}
+
+message IssueOrdersResponse {
+  repeated IssueOrdersResult results = 1;
+}
+
+message AcceptReturnsRequest {
+  string user_id = 1;
+  repeated string order_ids = 2;
+}
+
+message AcceptReturnsResult {
+    string order_id = 1;
+    bool success = 2;
+    string error = 3; 
+}
+
+message AcceptReturnsResponse {
+  repeated AcceptReturnsResult results = 1;
+}
+
+message GetOrderHistoryRequest {
+  string order_id = 1;
+}
+
+message GetOrderHistoryResponse {
+  repeated HistoryEntry history = 1;
+}
